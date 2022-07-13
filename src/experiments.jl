@@ -18,9 +18,15 @@ function _nonconvex_gurobi()
         optimizer_with_attributes(Gurobi.Optimizer, attributes...)
 end
 
+function edges(c)
+	lc = length(c)
+	rr = [[(c[i], c[i + 1]) for i in 1:(lc-1)]; (c[lc],c[1])]
+
+end
+
 function cycle(xs, n)
-	cs = combinations(xs, n)
-	zip(cs, Iterators.drop(cs, 1))
+	@show cs = collect(combinations(xs, n))
+	@show collect(map(edges, cs))
 end
 
 function generate_matrix(n; optimizer=_default_optimizer())
@@ -34,6 +40,7 @@ function generate_matrix(n; optimizer=_default_optimizer())
         @objective m Min dot(P, W)
         @constraints(m, begin
 		[c in cycle(N, 3)], 1 <= sum(P[i,j] for (i,j) in c) <= 2
+		[c in cycle(N, 3)], 1 <= sum(P[i,j] for (j,i) in c) <= 2
         	[(i, j) in combs(N, 2)], P[i, j] + P[j, i] == 1
         	[i in N], P[i, i] == 0
 	end)
@@ -68,18 +75,23 @@ function solve_qp(n; optimizer=_nonconvex_gurobi())
 
         m = Model(optimizer)
 
-        @variable m 0 <= P[N, N] <= 1
-	@variable m X[N, N]
-        @objective m Max dot(P, X)
+        @variable m 0 <= P[N, N]
+	@variable m X[N, N] <= 1
+        @objective m Max dot(P,X)
         @constraints(m, begin
         	[i in N], P[i, i] == 0
+        	[(i, j) in combs(N, 2)], P[i, j] + P[j, i] == 1
 		[c in cycle(N, 3)], 1 <= sum(P[i,j] for (i,j) in c) <= 2
 		[π in perms], sum(X[i,j] for (i, j) in combs(π, 2)) <= 0
 	end)
 
-        optimize!(m)
-	objective_value(m), termination_status(m)
+	optimize!(m)
+
+	p_val = collect(value.(P))
+	x_val = collect(value.(X))
+	objective_value(m), termination_status(m), p_val, x_val
 end
+
 
 function one_sample()
 	@show mat, status_mat = generate_matrix(3)
